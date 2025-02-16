@@ -1,22 +1,17 @@
-import { useState, useEffect } from "react";
-import Swal from "sweetalert2"; // Import SweetAlert2
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import Swal from "sweetalert2";
 
-const getAllProductsFromAPI = async () => {
-  try {
-    const response = await fetch("https://dummyjson.com/products");
-    if (!response.ok) {
-      throw new Error("Failed to fetch products");
-    }
-    const data = await response.json();
-    return data.products;
-  } catch (error) {
-    console.error(error);
-    return [];
-  }
+// Fetch products from API
+const fetchProducts = async () => {
+  const response = await fetch("https://dummyjson.com/products");
+  if (!response.ok) throw new Error("Failed to fetch products");
+  const data = await response.json();
+  return data.products;
 };
 
 const Products = () => {
-  const [products, setProducts] = useState([]);
+  const queryClient = useQueryClient();
   const [editingProduct, setEditingProduct] = useState(null);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
@@ -25,83 +20,58 @@ const Products = () => {
   const [productDescription, setProductDescription] = useState("");
   const [productImage, setProductImage] = useState("");
 
-  useEffect(() => {
-    const fetchProducts = async () => {
-      const data = await getAllProductsFromAPI();
-      setProducts(data);
-    };
-    fetchProducts();
-  }, []);
+  // Add Product Mutation (Local Simulation)
+  const addProductMutation = useMutation({
+    mutationFn: (newProduct) => Promise.resolve(newProduct),
+    onMutate: async (newProduct) => {
+      queryClient.setQueryData(["products"], (oldProducts) => [
+        ...oldProducts,
+        { ...newProduct, id: oldProducts.length + 101, images: [newProduct.image] },
+      ]);
+      Swal.fire("Product Added!", "Your new product has been added successfully.", "success");
+    },
+  });
 
-  const handleDelete = (id) => {
-    Swal.fire({
-      title: "Are you sure?",
-      text: "You won't be able to undo this!",
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonColor: "#d33",
-      cancelButtonColor: "#3085d6",
-      confirmButtonText: "Yes, delete it!",
-    }).then((result) => {
-      if (result.isConfirmed) {
-        setProducts(products.filter((product) => product.id !== id));
-        Swal.fire("Deleted!", "The product has been deleted.", "success");
-      }
-    });
-  };
+  // Update Product Mutation
+  const updateProductMutation = useMutation({
+    mutationFn: ({ id, title, description, image }) =>
+      Promise.resolve({ id, title, description, image }),
+    onMutate: async ({ id, title, description, image }) => {
+      queryClient.setQueryData(["products"], (oldProducts) =>
+        oldProducts.map((product) =>
+          product.id === id ? { ...product, title, description, images: [image] } : product
+        )
+      );
+      setEditingProduct(null);
+      Swal.fire("Updated!", "The product has been updated successfully.", "success");
+    },
+  });
 
-  const handleEdit = (id, currentTitle, currentDescription, currentImage) => {
-    setEditingProduct(id);
-    setNewTitle(currentTitle);
-    setNewDescription(currentDescription);
-    setNewImage(currentImage);
-  };
+  // Delete Product Mutation
+  const deleteProductMutation = useMutation({
+    mutationFn: (id) => Promise.resolve(id),
+    onMutate: async (id) => {
+      queryClient.setQueryData(["products"], (oldProducts) =>
+        oldProducts.filter((product) => product.id !== id)
+      );
+      Swal.fire("Deleted!", "The product has been deleted.", "success");
+    },
+  });
 
-  const handleUpdate = (id) => {
-    const updatedProducts = products.map((product) =>
-      product.id === id
-        ? { ...product, title: newTitle, description: newDescription, thumbnail: newImage }
-        : product
-    );
-    setProducts(updatedProducts);
-    setEditingProduct(null);
-    Swal.fire("Updated!", "The product has been updated successfully.", "success");
-  };
+  // Fetch products
+  const { data: products = [], isLoading, isError } = useQuery({
+    queryKey: ["products"],
+    queryFn: fetchProducts,
+  });
 
-  const handleCreateProduct = () => {
-    if (!productTitle || !productDescription || !productImage) {
-      Swal.fire({
-        icon: "error",
-        title: "Oops...",
-        text: "Title, Description, and Image are required!",
-      });
-      return;
-    }
-
-    const newProduct = {
-      id: products.length + 101, // Unique ID for new products
-      title: productTitle,
-      description: productDescription,
-      thumbnail: productImage,
-    };
-
-    setProducts([...products, newProduct]);
-    setProductTitle("");
-    setProductDescription("");
-    setProductImage("");
-
-    Swal.fire({
-      icon: "success",
-      title: "Product Added!",
-      text: "Your new product has been added successfully.",
-    });
-  };
+  if (isLoading) return <div className="text-center text-xl">Loading products...</div>;
+  if (isError) return <div className="text-center text-xl text-red-500">Error fetching products</div>;
 
   return (
     <>
       <div className="text-center text-4xl mt-4 font-bold text-gray-800">Product Manager</div>
 
-      {/* Create Product Section */}
+      {/* Add Product Section */}
       <div className="p-5 mt-5 bg-gray-100 shadow-md rounded-lg max-w-2xl mx-auto">
         <input
           type="text"
@@ -125,17 +95,37 @@ const Products = () => {
           className="border p-2 rounded w-full mb-2 focus:ring-2 focus:ring-blue-400"
         />
         <button
-          onClick={handleCreateProduct}
+          onClick={() => {
+            if (!productTitle.trim() || !productDescription.trim() || !productImage.trim()) {
+              Swal.fire("Error!", "All fields are required.", "error");
+              return; // Stop execution if fields are empty
+            }
+
+            addProductMutation.mutate({
+              title: productTitle,
+              description: productDescription,
+              image: productImage,
+            });
+
+            // **Clear the input fields after adding a product**
+            setProductTitle("");
+            setProductDescription("");
+            setProductImage("");
+
+            Swal.fire("Product Added!", "Your new product has been added successfully.", "success");
+          }}
           className="rounded-lg px-4 py-2 bg-blue-600 hover:bg-blue-700 transition text-white text-xl w-full"
         >
           Add Product
         </button>
+
+
       </div>
 
       {/* Display Products */}
       <div className="mt-5 max-w-3xl mx-auto">
         <h2 className="text-3xl font-bold text-center text-gray-800">All Products</h2>
-        {products.map(({ title, id, description, thumbnail }) => (
+        {products.map(({ title, id, description, images }) => (
           <div
             className="bg-white shadow-lg p-4 m-2 border rounded-lg transition hover:shadow-xl"
             key={id}
@@ -160,27 +150,19 @@ const Products = () => {
                   type="text"
                   value={newImage}
                   onChange={(e) => setNewImage(e.target.value)}
-                  className="border p-2 rounded w-full focus:ring-2 focus:ring-blue-400 mb-2"
+                  className="border p-2 rounded w-full mb-2 focus:ring-2 focus:ring-blue-400"
+                  placeholder="Enter New Image URL"
                 />
-                {newImage && (
-                  <img
-                    src={newImage}
-                    alt="Product"
-                    className="w-full h-40 object-cover rounded-lg shadow-md mb-2"
-                  />
-                )}
               </>
             ) : (
               <>
                 <h1 className="text-lg font-semibold text-gray-800">Name: {title}</h1>
                 <p className="text-gray-600">{description}</p>
-                {thumbnail && (
-                  <img
-                    src={thumbnail}
-                    alt="Product"
-                    className="w-40 h-40 object-cover rounded-lg shadow-md mt-2"
-                  />
-                )}
+                <img
+                  src={images?.[0] || "https://via.placeholder.com/200"}
+                  alt={title}
+                  className="w-40 h-40 object-cover rounded-lg mt-2 mx-auto"
+                />
 
               </>
             )}
@@ -188,21 +170,33 @@ const Products = () => {
             <div className="mt-3 flex gap-2">
               {editingProduct === id ? (
                 <button
-                  onClick={() => handleUpdate(id)}
+                  onClick={() =>
+                    updateProductMutation.mutate({
+                      id,
+                      title: newTitle,
+                      description: newDescription,
+                      image: newImage,
+                    })
+                  }
                   className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition"
                 >
                   Save
                 </button>
               ) : (
                 <button
-                  onClick={() => handleEdit(id, title, description, thumbnail)}
+                  onClick={() => {
+                    setEditingProduct(id);
+                    setNewTitle(title);
+                    setNewDescription(description);
+                    setNewImage(images?.[0] || "");
+                  }}
                   className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition"
                 >
                   Edit
                 </button>
               )}
               <button
-                onClick={() => handleDelete(id)}
+                onClick={() => deleteProductMutation.mutate(id)}
                 className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition"
               >
                 Delete
